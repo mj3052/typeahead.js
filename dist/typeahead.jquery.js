@@ -1,15 +1,16 @@
 /*!
- * typeahead.js 1.2.0
- * https://github.com/twitter/typeahead.js
- * Copyright 2013-2017 Twitter, Inc. and other contributors; Licensed MIT
+ * typeahead.js 1.2.1
+ * https://github.com/corejavascript/typeahead.js
+ * Copyright 2013-2018 Twitter, Inc. and other contributors; Licensed MIT
  */
+
 
 (function(root, factory) {
     if (typeof define === "function" && define.amd) {
         define([ "jquery" ], function(a0) {
             return factory(a0);
         });
-    } else if (typeof exports === "object") {
+    } else if (typeof module === "object" && module.exports) {
         module.exports = factory(require("jquery"));
     } else {
         factory(root["jQuery"]);
@@ -726,6 +727,7 @@
             this.templates = getTemplates(o.templates, this.displayFn);
             this.source = o.source.__ttAdapter ? o.source.__ttAdapter() : o.source;
             this.async = _.isUndefined(o.async) ? this.source.length > 2 : !!o.async;
+            this.updateOnAsync = this.async && o.updateOnAsync === true;
             this._resetLastSuggestion();
             this.$el = $(o.node).attr("role", "presentation").addClass(this.classes.dataset).addClass(this.classes.dataset + "-" + this.name);
         }
@@ -745,9 +747,9 @@
                 suggestions = suggestions || [];
                 if (suggestions.length) {
                     this._renderSuggestions(query, suggestions);
-                } else if (this.async && this.templates.pending) {
+                } else if (this.async && !this.updateOnAsync && this.templates.pending) {
                     this._renderPending(query);
-                } else if (!this.async && this.templates.notFound) {
+                } else if ((!this.async || this.updateOnAsync) && this.templates.notFound) {
                     this._renderNotFound(query);
                 } else {
                     this._empty();
@@ -837,7 +839,7 @@
                 }, obj) : obj;
             },
             update: function update(query) {
-                var that = this, canceled = false, syncCalled = false, rendered = 0;
+                var that = this, canceled = false, syncCalled = false, rendered = 0, unrenderedSuggestions = [];
                 this.cancel();
                 this.cancel = function cancel() {
                     canceled = true;
@@ -852,20 +854,21 @@
                     }
                     syncCalled = true;
                     suggestions = (suggestions || []).slice(0, that.limit);
-                    rendered = suggestions.length;
-                    that._overwrite(query, suggestions);
+                    if (!that.updateOnAsync) {
+                        rendered = suggestions.length;
+                        that._overwrite(query, suggestions);
+                    } else unrenderedSuggestions = suggestions;
                     if (rendered < that.limit && that.async) {
                         that.trigger("asyncRequested", query, that.name);
                     }
                 }
                 function async(suggestions) {
-                    suggestions = suggestions || [];
+                    suggestions = unrenderedSuggestions.concat(suggestions).slice(0, that.limit - rendered);
                     if (!canceled && rendered < that.limit) {
                         that.cancel = $.noop;
-                        var idx = Math.abs(rendered - that.limit);
-                        rendered += idx;
-                        that._append(query, suggestions.slice(0, idx));
-                        that.async && that.trigger("asyncReceived", query, that.name);
+                        if (!that.updateOnAsync) that._append(query, suggestions); else that._overwrite(query, suggestions);
+                        rendered += suggestions.length;
+                        that.async && that.trigger("asyncReceived", query);
                     }
                 }
             },
